@@ -14,9 +14,10 @@ def find_chunk_boundaries(
     assert isinstance(split_special_token, bytes), "Must represent special token as a bytestring"
 
     # Get total file size in bytes
-    file.seek(0, os.SEEK_END)
-    file_size = file.tell()
-    file.seek(0)
+    file.seek(0, os.SEEK_END)   # 跳到文件末尾
+    file_size = file.tell()      # 当前位置就是总字节数
+    file.seek(0)                 # 跳回开头
+
 
     chunk_size = file_size // desired_num_chunks
 
@@ -27,36 +28,36 @@ def find_chunk_boundaries(
 
     mini_chunk_size = 4096  # Read ahead by 4k bytes at a time
 
-    for bi in range(1, len(chunk_boundaries) - 1):
+    for bi in range(1, len(chunk_boundaries) - 1):  # 注意：不动第一个和最后一个
         initial_position = chunk_boundaries[bi]
         file.seek(initial_position)  # Start at boundary guess
         while True:
             mini_chunk = file.read(mini_chunk_size)  # Read a mini chunk
 
             # If EOF, this boundary should be at the end of the file
-            if mini_chunk == b"":
+            if mini_chunk == b"":   # 读到文件末尾还没找到
                 chunk_boundaries[bi] = file_size
                 break
 
             # Find the special token in the mini chunk
             found_at = mini_chunk.find(split_special_token)
-            if found_at != -1:
+            if found_at != -1:  # 找到了特殊 token
                 chunk_boundaries[bi] = initial_position + found_at
                 break
-            initial_position += mini_chunk_size
+            initial_position += mini_chunk_size # 没找到，继续往后读
 
     # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
     return sorted(set(chunk_boundaries))
 
 
 ## Usage
-with open(..., "rb") as f:
+with open("data/TinyStoriesV2-GPT4-valid.txt", "rb") as f:
     num_processes = 4
     boundaries = find_chunk_boundaries(f, num_processes, b"<|endoftext|>")
 
     # The following is a serial implementation, but you can parallelize this
     # by sending each start/end pair to a set of processes.
     for start, end in zip(boundaries[:-1], boundaries[1:]):
-        f.seek(start)
+        f.seek(start)   # 把文件的"读取光标"移动到 start 字节处
         chunk = f.read(end - start).decode("utf-8", errors="ignore")
         # Run pre-tokenization on your chunk and store the counts for each pre-token
