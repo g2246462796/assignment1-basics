@@ -13,8 +13,8 @@ from cs336_basics.bpe_train import train_bpe
 from cs336_basics.BPETokenizer import BPETokenizer
 from cs336_basics.Layers import Linear
 from cs336_basics.Layers import RMSNorm
-from cs336_basics.Layers import SwigGLU
-
+from cs336_basics.activations import SwigGLU
+from cs336_basics.activations import softmax
 def run_linear(
     d_in: int,
     d_out: int,
@@ -444,7 +444,7 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
         Float[Tensor, "..."]: Tensor of with the same shape as `in_features` with the output of
         softmax normalizing the specified `dim`.
     """
-    raise NotImplementedError
+    return softmax(in_features)
 
 
 def run_cross_entropy(

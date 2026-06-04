@@ -128,26 +128,5 @@ class RMSNorm(nn.Module):
         # 5. 转回原始类型
         return result.to(in_dtype)
 
-def silu_fn(in_features):
-    # Sigmoid：σ(x) = 1 / (1 + e^{-x})
-    # SiLU / Swish：x * σ(x)
-    return in_features * torch.sigmoid(in_features)
 
-class SwigGLU(nn.Module):
-    def __init__(self, d_model: int, d_ff: int, device=None, dtype= None):
-        super().__init__()
-        self.d_ff = d_ff
-        self.d_model = d_model
-        # W1 和 W3 是并行升维层: d_model -> d_ff
-        self.w1 = Linear(d_model, d_ff, device, dtype)
-        self.w3 = Linear(d_model, d_ff, device, dtype)
-        # W2 是降维层: d_ff -> d_model
-        self.w2 = Linear(d_ff, d_model, device, dtype)
-    
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
 
-        gate = silu_fn(self.w1(x))
-        signal = self.w3(x)
-
-        return self.w2(gate * signal)
