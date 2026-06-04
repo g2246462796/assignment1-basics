@@ -3,6 +3,7 @@ from collections import defaultdict, Counter
 import regex as re
 import json
 
+
 def read_text_in_chunks(file_path, chunk_size=1024*1024):
     """生成器：分块读取文本文件，按行切分，确保每行完整。"""
     with open(file_path, "r", encoding="utf-8") as f:
@@ -99,6 +100,7 @@ def train_bpe(
 
         # 5a. 选择最佳 pair（频率最高，同频字典序最大）
         best_pair = max(stats.items(), key=lambda x: (x[1], x[0]))[0]
+
         if stats[best_pair] <= 0:
             break
 
