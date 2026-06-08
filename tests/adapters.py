@@ -13,8 +13,11 @@ from cs336_basics.bpe_train import train_bpe
 from cs336_basics.BPETokenizer import BPETokenizer
 from cs336_basics.Layers import Linear
 from cs336_basics.Layers import RMSNorm
-from cs336_basics.activations import SwigGLU
+from cs336_basics.Layers import SwigGLU
 from cs336_basics.activations import softmax
+from cs336_basics.Layers import scaled_dot_product_attention
+from cs336_basics.Layers import RotaryPositionalEmbedding
+
 def run_linear(
     d_in: int,
     d_out: int,
@@ -38,7 +41,6 @@ def run_linear(
     model.load_state_dict({"weight": weights})
     return model(in_features)
 
-
 def run_embedding(
     vocab_size: int,
     d_model: int,
@@ -59,7 +61,6 @@ def run_embedding(
     """
 
     raise NotImplementedError
-
 
 def run_swiglu(
     d_model: int,
@@ -96,7 +97,6 @@ def run_swiglu(
     swiglu.w3.weight.data = w3_weight
     return swiglu(in_features)
 
-
 def run_scaled_dot_product_attention(
     Q: Float[Tensor, " ... queries d_k"],
     K: Float[Tensor, " ... keys d_k"],
@@ -115,7 +115,7 @@ def run_scaled_dot_product_attention(
     Returns:
         Float[Tensor, " ... queries d_v"]: Output of SDPA
     """
-    raise NotImplementedError
+    return scaled_dot_product_attention(Q,K,V,mask)
 
 
 def run_multihead_self_attention(
@@ -211,7 +211,8 @@ def run_rope(
     Returns:
         Float[Tensor, " ... sequence_length d_k"]: Tensor with RoPEd input.
     """
-    raise NotImplementedError
+    rope = RotaryPositionalEmbedding(theta=theta, d_k=d_k, max_seq_len=max_seq_len)
+    return rope(in_query_or_key, token_positions)
 
 
 def run_transformer_block(

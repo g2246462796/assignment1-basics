@@ -1,5 +1,8 @@
 import torch
 import torch.nn as nn
+from cs336_basics.activations import softmax
+import math
+from einops import rearrange
 
 class Linear(nn.Module):
     def __init__(self, in_features: int, out_features: int, device=None, dtype=None):
@@ -128,5 +131,118 @@ class RMSNorm(nn.Module):
         # 5. 转回原始类型
         return result.to(in_dtype)
 
+def silu_fn(in_features):
+    # Sigmoid：σ(x) = 1 / (1 + e^{-x})
+    # SiLU / Swish：x * σ(x)
+    return in_features * torch.sigmoid(in_features)
 
+class SwigGLU(nn.Module):
+    def __init__(self, d_model: int, d_ff: int, device=None, dtype= None):
+        super().__init__()
+        self.d_ff = d_ff
+        self.d_model = d_model
+        # W1 和 W3 是并行升维层: d_model -> d_ff
+        self.w1 = Linear(d_model, d_ff, device, dtype)
+        self.w3 = Linear(d_model, d_ff, device, dtype)
+        # W2 是降维层: d_ff -> d_model
+        self.w2 = Linear(d_ff, d_model, device, dtype)
+    
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+
+        gate = silu_fn(self.w1(x))
+        signal = self.w3(x)
+
+        return self.w2(gate * signal)
+    
+def scaled_dot_product_attention(
+    Q: torch.Tensor,
+    K: torch.Tensor,
+    V: torch.Tensor,
+    mask: torch.Tensor = None
+) -> torch.Tensor:
+    """
+    参数:
+        Q: [..., n, d_k] (n 为查询序列长度)
+        K: [..., m, d_k] (m 为键值序列长度)
+        V: [..., m, d_v]
+        mask: [n, m] 布尔矩阵, True 为保留, False 为屏蔽
+    """
+    d_k = Q.size(-1)
+
+    # 1.计算相似度分数 (Scores)
+    # einsum 语义: 沿着 d_k 维度(k)进行点积, 保留 batch(...)、 query(n) 和 key(m) 维度
+    # 结果形状: [..., n, m]
+    scores = torch.einsum('...nk, ...mk -> ...nm', Q, K) / math.sqrt(d_k)
+
+    # 2. 应用因果掩码 (Masking)
+    if mask is not None:
+        # 将 False 对应位置的分数设为负无穷, 使其在 Softmax 后概率为 0
+        scores = scores.masked_fill(mask == False, float('-inf'))
+
+    # 3. 计算注意力权重 (归一化)
+    # dim=-1 对应的是每一个 Query 对所有 key 的分布
+    probs = softmax(scores, dim=-1)
+
+    # 4. 加权求和得到输出 (Output)
+    # enisum 语义: 利用 probs(n, m) 对 V(m, k) 进行加权求和
+    # 结果形状: [..., n, d_v]
+    output = torch.einsum('...nm, ...mk -> ...nk', probs, V)
+
+    return output
+
+class RotaryPositionalEmbedding(nn.Module):
+    def __init__(self, theta: float, d_k: int, max_seq_len: int, device=None):
+        """
+        初始化 RoPE 模块
+        theta: 基准频率 (通常为 10000)
+        d_k: 每个 Head 的维度 (必须是偶数)
+        max_seq_len: 最大序列长度
+        """
+        super().__init__()
+        self.d_k = d_k
+
+        # 1. 计算频率 omega_k = theta^(-2k / d)
+        # 我们只需要计算 d_k/2 个频率, 因为旋转是成对进行的
+        # arange(0, d_k, 2) 产生 [0, 2, 4, ..., d_k-2], 对应公式中的2k-2(k从1开始)
+        powers = torch.arange(0, d_k, 2, device=device).float() / d_k
+        freqs = 1.0 / (theta ** powers) # 形状: (d_k/2,)
+
+        # 创建位置序列 [0,1,..., max_seq_len - 1]
+        t = torch.arange(max_seq_len, device=device).float() # 形状: (max_seq_len,)
+
+        # 3. 计算所有位置的所有角度 (外积)
+        # freqs_matrix 形状: (max_seq_len, d_k/2)
+        freqs_matrix = torch.outer(t, freqs)
+
+        # 4. 预计算 cos 和 sin 并作为 buffer 注册
+        # 使用 persistent=False 确保这些缓存不会被保存在 state_dict 中 (因为可以随时重新生成)
+        self.register_buffer("cos_cached", freqs_matrix.cos(), persistent=False)
+        self.register_buffer("sin_cached", freqs_matrix.sin(), persistent=False)
+
+    def forward(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
+        # 1. 提取 cos/sin (..., Seq, d_k/2)
+        cos = self.cos_cached[token_positions]
+        sin = self.sin_cached[token_positions]
+
+        # 2. 维度对齐
+        # 只有当 x 是 4D (含 Head 维) 且 cos 是 3D (含 Batch 维) 时, 才需要手动插入 Head 维。
+        # 对于 test_rope 这种 3D x vs 2D cos 的情况, PyTorch 会自动左侧补 1, 无需操作。
+        if x.ndim > cos.ndim and cos.ndim >= 3:
+            cos = cos.unsqueeze(1)
+            sin = sin.unsqueeze(1)
+        
+        # 确保类型一致
+        cos = cos.to(x.dtype)
+        sin = sin.to(x.dtype)
+
+        # 3. 拆分
+        x_even = x[..., 0::2]
+        x_odd = x[..., 1::2]
+
+        output = torch.empty_like(x)
+        output[..., 0::2] = x_even * cos - x_odd * sin
+        output[..., 1::2] = x_even * sin + x_odd * cos
+
+        return output
 
