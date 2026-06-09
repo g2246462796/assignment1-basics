@@ -19,6 +19,7 @@ from cs336_basics.Layers import scaled_dot_product_attention
 from cs336_basics.Layers import RotaryPositionalEmbedding
 from cs336_basics.Layers import CausualSelfAttention
 from cs336_basics.Layers import TransformerBlock
+from cs336_basics.Layers import TransformerLM
 
 def run_linear(
     d_in: int,
@@ -381,7 +382,18 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    model = TransformerLM(
+        vocab_size=vocab_size,
+        max_seq_len=context_length,
+        d_model=d_model,
+        num_layers=num_layers,
+        num_heads=num_heads,
+        d_ff=d_ff,
+        rope_theta=rope_theta,
+    )
+    model.load_state_dict(weights)
+    return model(in_indices)
+
 
 
 def run_rmsnorm(

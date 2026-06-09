@@ -335,4 +335,65 @@ class TransformerBlock(nn.Module):
         # 再次分流: 一路直接传走, 一路进 Norm+FFN
         x = x + self.ffn(self.ln2(x))
 
-        return x  
+        return x
+
+class TransformerLM(nn.Module):
+    def __init__(self, vocab_size: int, max_seq_len: int, d_model: int,
+                 num_layers: int, num_heads: int, d_ff: int, rope_theta: float,
+                 device=None, dtype=None,
+                 # 新增实验参数
+                 use_rms_norm: bool = True,
+                 norm_mode: str = "pre",
+                 ffn_type: str = "swiglu"):
+        super().__init__()
+        self.max_seq_len = max_seq_len
+
+        # 1. Token Embedding 层
+        self.token_embeddings = Embedding(vocab_size, d_model, device=device, dtype=dtype)
+
+        # 2. 堆叠 Transformer Blocks
+        # 将实验参数透传给每一个 Block
+        self.layers = nn.ModuleList([
+            TransformerBlock(
+                d_model, num_heads, d_ff, max_seq_len, rope_theta,
+                device=device,dtype=dtype,
+                # use_rms_norm=use_rms_norm,
+                # norm_mode=norm_mode,
+                # ffn_type=ffn_type
+            )
+            for _ in range(num_layers)
+        ])
+
+        # 3. 最终的输出层
+        # 如果全局禁用了 Norm, 这里的 Final Norm 也要变成 Identity
+        if use_rms_norm:
+            self.ln_final = RMSNorm(d_model, device=device, dtype=dtype)
+        else:
+            """
+            forward(input):
+                return input
+            """
+            self.ln_final = nn.Identity()
+        
+        # 最后是一个 Linear 层映射回词表大小 (LM Head)
+        self.lm_head = Linear(d_model, vocab_size, device=device, dtype=dtype)
+    
+    def forward(self, token_ids: torch.Tensor) -> torch.Tensor:
+
+        b, s = token_ids.shape
+
+        # 准备位置信息用于 RoPE, shape: [S] -> [1, S] -> [B, S]
+        token_positions = torch.arange(s, device=token_ids.device).unsqueeze(0).expand(b, s)
+
+        # 1. Embedding
+        x = self.token_embeddings(token_ids)
+
+        # 2. 逐层通过 Transformer Blocks
+        for layer in self.layers:
+            x = layer(x, token_positions=token_positions)
+
+        # 3. 最终归一化 (如果 use_rms_norm=False, 这里就是直通)
+        x = self.ln_final(x)
+
+        # 4. 投影到词表空间得到 logits
+        return self.lm_head(x)
