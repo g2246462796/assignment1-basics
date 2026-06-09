@@ -246,3 +246,93 @@ class RotaryPositionalEmbedding(nn.Module):
 
         return output
 
+class CausualSelfAttention(nn.Module):
+    def __init__(self, d_model: int, num_heads: int, max_seq_len=None, theta=None, device=None, dtype=None):
+        super().__init__()
+        # 维度校验
+        assert d_model % num_heads == 0, "d_model 必须能被 num_heads 整除"
+
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.d_k = d_model // num_heads
+
+        # 1. Q, K, V 投影层: 将输入映射到三个不同的特征空间
+        self.q_proj = Linear(d_model, d_model, device=device, dtype=dtype)
+        self.k_proj = Linear(d_model, d_model, device=device, dtype=dtype)
+        self.v_proj = Linear(d_model, d_model, device=device, dtype=dtype)
+
+        # 2. 输出投影层: 整合所有头的信息
+        self.output_proj = Linear(d_model, d_model, device=device, dtype=dtype)
+
+        # 3.Rope 初始化: 仅在提供 theta 时启用
+        if theta is not None and max_seq_len is not None:
+            self.rope = RotaryPositionalEmbedding(theta, self.d_k, max_seq_len, device=device)
+        else:
+            self.rope = None
+
+    def forward(self, x: torch.Tensor, token_positions: torch.Tensor = None) -> torch.Tensor:
+        b, s, d = x.shape
+
+        # 步骤 1 & 2: 线性投影并拆分多头
+        # 使用 eniops.rearrange 替代 view + transpose
+        # 语义: 将长度为 d 的特征维拆成 (h d_k), 并将 h 维移动到序列维 s 之前
+        q = rearrange(self.q_proj(x), '... s (h d) -> ... h s d', h=self.num_heads)
+        k = rearrange(self.k_proj(x), '... s (h d) -> ... h s d', h=self.num_heads)
+        v = rearrange(self.v_proj(x), '... s (h d) -> ... h s d', h=self.num_heads)
+
+        # 步骤 3: 应用 RoPE 旋转位置编码
+        if self.rope is not None:
+            if token_positions is None:
+                # 默认生成从 0 开始的顺序位置
+                # expand 处理 Batch 维度, 不占用额外物理内存
+                token_positions = torch.arange(s, device=x.device).expand(b, s)
+
+            # 对 Q 和 K 进行旋转, V 保持不动
+            q = self.rope(q, token_positions)
+            k = self.rope(k, token_positions)
+        
+        # 步骤 4: 生成因果掩码 (下三角矩阵)
+        # 确保 Query 只能看到当前及以前的 Key
+        mask = torch.tril(torch.ones(s, s, device=x.device, dtype=torch.bool))
+
+        # 步骤 5: 核心注意力计算 (SDPA)
+        # 结果形状: (Batch, Heads, Seq, d_k)
+        attn_out = scaled_dot_product_attention(q, k, v, mask=mask)
+
+        # 步骤 6: 合并多头
+        # 语义: 将多头维度 h 重新并入特征维度
+        attn_out = rearrange(attn_out, '... h s d -> ... s (h d)')
+
+        # 步骤 7: 输出投影
+        return self.output_proj(attn_out)
+
+class TransformerBlock(nn.Module):
+    def __init__(self, d_model: int, num_heads: int, d_ff: int, max_seq_len: int,
+                 theta: float, device=None, dtype=None):
+        super().__init__()
+        # 初始化因果自注意力模块
+        self.attn = CausualSelfAttention(
+            d_model=d_model,
+            num_heads=num_heads,
+            max_seq_len=max_seq_len,
+            theta=theta,
+            device=device,
+            dtype=dtype
+        )
+        # 初始化两个 RMSNorm 层, 分别服务于 Attention 和 FFN
+        self.ln1 = RMSNorm(d_model, device=device, dtype=dtype)
+        self.ln2 = RMSNorm(d_model, device=device, dtype=dtype)
+
+        # 初始化前馈网络 (SwiGLU)
+        self.ffn = SwigGLU(d_model, d_ff, device=device, dtype=dtype)
+
+    def forward(self, x: torch.Tensor, token_positions: torch.Tensor = None) -> torch.Tensor:
+        # 步骤 1: Attention 子层 (Pre-norm 结构)
+        # x 被分成两路: 一路直接传走 (残差), 一路进 Norm+Attention
+        x = x + self.attn(self.ln1(x), token_positions=token_positions)
+
+        # 步骤 2: FFN 子层 (Pre-norm 结构)
+        # 再次分流: 一路直接传走, 一路进 Norm+FFN
+        x = x + self.ffn(self.ln2(x))
+
+        return x  
