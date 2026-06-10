@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from cs336_basics.activations import softmax
+from cs336_basics.criterion import softmax
 import math
 from einops import rearrange
 

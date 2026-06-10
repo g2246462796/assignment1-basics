@@ -14,14 +14,14 @@ from cs336_basics.BPETokenizer import BPETokenizer
 from cs336_basics.Layers import Linear
 from cs336_basics.Layers import RMSNorm
 from cs336_basics.Layers import SwigGLU
-from cs336_basics.activations import softmax
+from cs336_basics.criterion import softmax
 from cs336_basics.Layers import scaled_dot_product_attention
 from cs336_basics.Layers import RotaryPositionalEmbedding
 from cs336_basics.Layers import CausualSelfAttention
 from cs336_basics.Layers import TransformerBlock
 from cs336_basics.Layers import TransformerLM
-from cs336_basics.activations import cross_entropy
-
+from cs336_basics.criterion import cross_entropy
+from cs336_basics.criterion import AdamW
 
 def run_linear(
     d_in: int,
@@ -471,7 +471,6 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
     """
     return softmax(in_features)
 
-
 def run_cross_entropy(
     inputs: Float[Tensor, " batch_size vocab_size"], targets: Int[Tensor, " batch_size"]
 ) -> Float[Tensor, ""]:
@@ -506,7 +505,7 @@ def get_adamw_cls() -> Any:
     """
     Returns a torch.optim.Optimizer that implements AdamW.
     """
-    raise NotImplementedError
+    return AdamW
 
 
 def run_get_lr_cosine_schedule(
