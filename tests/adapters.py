@@ -20,6 +20,8 @@ from cs336_basics.Layers import RotaryPositionalEmbedding
 from cs336_basics.Layers import CausualSelfAttention
 from cs336_basics.Layers import TransformerBlock
 from cs336_basics.Layers import TransformerLM
+from cs336_basics.activations import cross_entropy
+
 
 def run_linear(
     d_in: int,
@@ -302,7 +304,6 @@ def run_transformer_block(
     model.load_state_dict(weights)
     return model(in_features)
 
-
 def run_transformer_lm(
     vocab_size: int,
     context_length: int,
@@ -394,8 +395,6 @@ def run_transformer_lm(
     model.load_state_dict(weights)
     return model(in_indices)
 
-
-
 def run_rmsnorm(
     d_model: int,
     eps: float,
@@ -419,7 +418,6 @@ def run_rmsnorm(
     model = RMSNorm(d_model, eps)
     model.load_state_dict({"weight": weights})
     return model(in_features)
-
 
 def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
     """Given a tensor of inputs, return the output of applying SiLU
@@ -489,7 +487,7 @@ def run_cross_entropy(
     Returns:
         Float[Tensor, ""]: The average cross-entropy loss across examples.
     """
-    raise NotImplementedError
+    return cross_entropy(inputs,targets)
 
 
 def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float) -> None:
