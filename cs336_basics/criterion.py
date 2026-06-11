@@ -117,3 +117,84 @@ class AdamW(Optimizer):
                 if wd != 0:
                     p.add_(p, alpha=-lr * wd)
         return loss
+    
+def get_lr_cosine_schedule(
+        it: int,
+        max_learning_rate: float,
+        min_learning_rate: float,
+        warmup_iters: int,
+        cosine_cycle_iters: int
+) -> float:
+    """
+    计算第 it 次迭代时, 带预热的余弦退火学习率。
+
+    参数:
+        it: 当前迭代步数 (t)
+        max_learning_rate: 学习率的峰值 (alpha_max)
+        min_learning_rate: 学习率的底值 (alpha_min)
+        warmup_iters: 预热阶段的总步数 (T_w)
+        cosine_cycle_iters: 整个衰减周期结束的步数 (T_c)
+    """
+
+    # 1. 预热阶段: 线性增长周期
+    if it < warmup_iters:
+        # 从 0 匀速增长到 max_learning_rate
+        return max_learning_rate * it / warmup_iters
+    
+    # 2. 衰减周期后: 维持最小值
+    if it > cosine_cycle_iters:
+        return min_learning_rate
+    
+    # 3. 余弦退火核心逻辑
+    # a. 计算当前处于退火阶段的进度百分比 (0.0 到 1.0)
+    # it - warmup_iters: 距离预热结束走了多少步
+    # cosine_cycle_iters - warmup_iters: 整个退火阶段的总长度
+    decay_ratio = (it - warmup_iters) / (cosine_cycle_iters - warmup_iters)
+
+    # b. 计算余弦系数
+    # math.cos(math.pi  * decay_ratio):
+    # 当前进度为 0 时, 结果为 cos(0) = 1
+    # 当前进度为 1 时, 结果为 cos(pi) = -1
+    # coeff = 0.5 * (1 + [-1, 1]) -> 范围 [0.0, 1.0]
+    coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
+
+    # c. 最终计算
+    # 学习率从 max 降向 min
+    return min_learning_rate + coeff * (max_learning_rate - min_learning_rate)
+
+def clip_gradient_norm(parameters: Iterable[torch.nn.Parameter], max_norm: float):
+    """
+    实现全局梯度裁剪(Global Norm Clipping)。
+    
+    参数:
+        parameters: 模型的所有参数 (model.parameters())
+        max_norm: 允许的最大梯度 L2 范数 (M)
+    """
+    # 1. 过滤掉没有梯度的参数 (防止对 None 对象操作)
+    params_with_grad = [p for p in parameters if p.grad is not None]
+    if not params_with_grad:
+        return
+    
+    # 2. 计算全局 L2 范数 (Global L2 Norm)
+    total_norm = 0.0
+    for p in params_with_grad:
+        # 使用 .detach() 极其重要:
+        # 梯度裁剪是在计算完导数后进行的数值操作, 我们不希望“计算范数”的过程也被记入计算图。
+        # torch.norm(..., p=2) 算出当前层梯度的 L2 范数 L_i
+        param_norm = torch.norm(p.grad.detach(), p=2)
+
+        # 将各层范数的平方累加 (L_total = sqrt(sum(L_i^2)))
+        total_norm += param_norm.item() ** 2
+    
+    total_norm = total_norm ** 0.5
+
+    # 3. 检查是否触发裁剪
+    eps = 1e-6 # 防止除零的稳定性常数
+    if total_norm > max_norm:
+        # 计算统一的缩放系数
+        clip_coef = max_norm / (total_norm + eps)
+
+        # 4. 原地 (in-place) 修改每个参数的梯度
+        # 使用 mul_ 直接修改内存, 不产生临时副本, 节省显存
+        for p in params_with_grad:
+            p.grad.detach().mul_(clip_coef)
