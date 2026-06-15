@@ -25,6 +25,8 @@ from cs336_basics.criterion import AdamW
 from cs336_basics.criterion import get_lr_cosine_schedule
 from cs336_basics.criterion import clip_gradient_norm
 from cs336_basics.criterion import get_batch
+from cs336_basics.criterion import save_checkpoint
+from cs336_basics.criterion import load_checkpoint
 
 def run_linear(
     d_in: int,
@@ -435,7 +437,6 @@ def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
     """
     raise NotImplementedError
 
-
 def run_get_batch(
     dataset: npt.NDArray, batch_size: int, context_length: int, device: str
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -457,7 +458,6 @@ def run_get_batch(
         language modeling labels.
     """
     return get_batch(dataset=dataset,batch_size=batch_size,max_seq_length=context_length,device=device)
-
 
 def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ..."]:
     """
@@ -491,7 +491,6 @@ def run_cross_entropy(
     """
     return cross_entropy(inputs,targets)
 
-
 def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float) -> None:
     """Given a set of parameters, clip their combined gradients to have l2 norm at most max_l2_norm.
 
@@ -503,13 +502,11 @@ def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm:
     """
     return clip_gradient_norm(parameters=parameters,max_norm=max_l2_norm)
 
-
 def get_adamw_cls() -> Any:
     """
     Returns a torch.optim.Optimizer that implements AdamW.
     """
     return AdamW
-
 
 def run_get_lr_cosine_schedule(
     it: int,
@@ -538,7 +535,6 @@ def run_get_lr_cosine_schedule(
     """
     return get_lr_cosine_schedule(it,max_learning_rate,min_learning_rate,warmup_iters,cosine_cycle_iters)
 
-
 def run_save_checkpoint(
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
@@ -555,8 +551,7 @@ def run_save_checkpoint(
             we've completed.
         out (str | os.PathLike | BinaryIO | IO[bytes]): Path or file-like object to serialize the model, optimizer, and iteration to.
     """
-    raise NotImplementedError
-
+    return save_checkpoint(model,optimizer,iteration,out)
 
 def run_load_checkpoint(
     src: str | os.PathLike | BinaryIO | IO[bytes],
@@ -576,8 +571,7 @@ def run_load_checkpoint(
     Returns:
         int: the previously-serialized number of iterations.
     """
-    raise NotImplementedError
-
+    return load_checkpoint(src,model,optimizer)
 
 def get_tokenizer(
     vocab: dict[int, bytes],
@@ -600,7 +594,6 @@ def get_tokenizer(
         A BPE tokenizer that uses the provided vocab, merges, and special tokens.
     """
     return BPETokenizer(vocab, merges, special_tokens)
-
 
 def run_train_bpe(
     input_path: str | os.PathLike,
