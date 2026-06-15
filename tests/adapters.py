@@ -27,6 +27,7 @@ from cs336_basics.criterion import clip_gradient_norm
 from cs336_basics.criterion import get_batch
 from cs336_basics.criterion import save_checkpoint
 from cs336_basics.criterion import load_checkpoint
+from cs336_basics.Layers import silu_fn
 
 def run_linear(
     d_in: int,
@@ -435,7 +436,7 @@ def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
         Float[Tensor,"..."]: of with the same shape as `in_features` with the output of applying
         SiLU to each element.
     """
-    raise NotImplementedError
+    return silu_fn(in_features)
 
 def run_get_batch(
     dataset: npt.NDArray, batch_size: int, context_length: int, device: str

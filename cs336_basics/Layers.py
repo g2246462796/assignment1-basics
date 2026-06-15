@@ -347,7 +347,7 @@ class TransformerLM(nn.Module):
                  ffn_type: str = "swiglu"):
         super().__init__()
         self.max_seq_len = max_seq_len
-
+        self.context_length = max_seq_len
         # 1. Token Embedding 层
         self.token_embeddings = Embedding(vocab_size, d_model, device=device, dtype=dtype)
 
@@ -397,3 +397,86 @@ class TransformerLM(nn.Module):
 
         # 4. 投影到词表空间得到 logits
         return self.lm_head(x)
+    
+    @torch.no_grad()
+    def generate(
+        self,
+        prompt_ids: torch.Tensor,
+        max_new_tokens: int,
+        eos_token_id: int = None,
+        temperature: float = 1.0,
+        top_p: float = 1.0
+    ) -> torch.Tensor:
+        """
+        从模型生成文本 ID 序列。
+
+        参数: 
+            prompt_ids: 提示词 ID (Batch, Seq_len)
+            max_new_tokens: 最多生成的词数
+            eos_token_id: 停止生成的 Token ID (如 <|endoftext|>)
+            temperature: 温度系数 (越高越随机, 越低越稳定)
+            top_p: 核采样阈值
+        """
+        # 设置为评估模式
+        self.eval()
+
+        # 将输入拷贝一份, 避免修改原始数据
+        generated = prompt_ids.clone()
+
+        for _ in range(max_new_tokens):
+            # 1. 裁剪输入: 模型只能处理 context_length 长度的内容
+            # 如果生成的序列过长, 只取最后的 context_length 个词
+            idx_cond = generated[:,-self.context_length:]
+
+            # 2. 前向传播得到 Logits
+            # 我们只关心最后一个时间步的预测
+            logits = self.forward(idx_cond) # (Batch, T, Vocab)
+            logits = logits[:, -1, :] # (Batch, Vocab)
+
+            # 3. 应用温度 (Temperature)
+            if temperature != 1.0:
+                logits = logits / (temperature + 1e-8) # 加个 epsilon 防止除以 0
+            
+            # 4. 应用 Top-P (Nucleus Sampling) 过滤
+            if top_p < 1.0:
+                logits = self._top_p_filter(logits, top_p)
+            
+            # 5. 归一化并采样
+            probs = softmax(logits, dim=-1)
+            next_token = torch.multinomial(probs, num_samples=1) # (Batch, 1)
+            
+            # 6. 拼接新词
+            generated = torch.cat((generated, next_token), dim=1)
+
+            # 7. 如果遇到了 EOS, 提前结束生成
+            if eos_token_id is not None and (next_token == eos_token_id).all():
+                break
+        
+        return generated 
+
+
+    def _top_p_filter(self, logits: torch.Tensor, p: float) -> torch.Tensor:
+        """内部工具函数: 执行 Top-P 截断"""
+        # 对词表分值进行降序排序
+        sorted_logits, sorted_indices = torch.sort(logits, descending=True, dim=-1)
+
+        # 计算累计概率分布
+        cumulative_probs = torch.cumsum(softmax(sorted_logits, dim=-1), dim=-1)
+
+        # 创建掩码: 我们要去掉累计概率超过 p 的 Token
+        # 逻辑: 保留最小的集合 V(p), 使其概率之和 >= p
+        # 我们把所有超过 p 的位置标记为 True (需要移除)
+        sorted_indices_to_remove = cumulative_probs > p
+
+        # 关键修正: 确保至少保留第一个词 (最高概率词),
+        # 并且我们要保留第一个"使概率超过 p" 的那个词。
+        # 做法是把标记位向右移动一格。
+        sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+        sorted_indices_to_remove[..., 0] = False
+
+        # 将被移除的 Token 分数设为负无穷
+        # 这里需要利用 scatter 将排序后的掩码映射回原始词表索引位置
+        indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
+        logits = logits.masked_fill(indices_to_remove, float('-inf'))
+
+        return logits
