@@ -40,22 +40,69 @@ class Linear(nn.Module):
         return torch.einsum('...i, oi -> ...o', x, self.weight)
 
 class Embedding(nn.Module):
+    '''
+    一个最简版的 embedding 层实现：
+
+    功能：
+    - 输入：token ids（整数索引）[B, S]
+    - 输出：对应的向量表示 [B, S, D]
+
+    本质：
+    - 维护一个可训练参数矩阵 W ∈ (vocab_size, embedding_dim)
+    - forward 时做的是“查表”（index lookup），不是矩阵乘法
+    '''
+    
     def __init__(self, num_embeddings: int, embedding_dim: int, device=None, dtype=None):
         super().__init__()
-        # 分配内存并包装为参数 (W 维度: vocab_size x d_model)
-        # num_embeddings 就是词表大小 vocab_size
-        factory_kwargs = {'device': device, 'dtype': dtype}
-        self.weight = nn.Parameter(torch.empty((num_embeddings, embedding_dim), **factory_kwargs))
+        # nn.Module:
+        # - PyTorch 所有“层”的基类
+        # - 提供参数管理、自动求导、.to(device) 等能力
 
-        # 2. 按照作业要求执行初始化
-        # mean=0, std=1.0, 截断在 [-3. 3]
+        # factory_kwargs:
+        # - 用于统一控制张量创建时的 device / dtype（比如 GPU / float16）
+        factory_kwargs = {'device': device, 'dtype': dtype}
+
+        # nn.Parameter:
+        # - 把一个 tensor 注册为“模型参数”
+        # - 会被 optimizer 更新（requires_grad=True）
+        # - 会出现在 model.parameters() 里
+        self.weight = nn.Parameter(
+            torch.empty((num_embeddings, embedding_dim), **factory_kwargs)
+        )
+        # torch.empty:
+        # - 只分配内存，不初始化（里面是随机垃圾值，效率高）
+        # - 这里形状是 (V, D)，V=vocab_size
+
+        # nn.init.trunc_normal_:
+        # - 原地初始化（in-place）
+        # - 从截断正态分布采样：
+        #   mean=0, std=1
+        #   截断范围 [-3, 3]
+        # - 目的：避免极端大值，训练更稳定
         nn.init.trunc_normal_(self.weight, mean=0.0, std=1.0, a=-3.0, b=3.0)
     
     def forward(self, token_ids: torch.Tensor) -> torch.Tensor:
-        # token_ids 形状: [B, S]
-        # 直接通过索引从矩阵中“捞出”对应的向量
-        # token_ids 形状是 [B, S]，里面每个值是 0 到 vocab_size-1 之间的整数。PyTorch 对每个整数去 self.weight 里取对应那一行，所以输出形状变成 [B, S, embedding_dim]
-        return self.weight[token_ids] # 返回形状: [B, S, D]
+        # forward:
+        # - 定义前向计算逻辑
+        # - 被调用时：output = model(input)
+
+        # token_ids:
+        # - 形状: [B, S]
+        # - 每个元素是 int（0 ~ vocab_size-1）
+
+        # self.weight[token_ids]:
+        # - 这是 PyTorch 的“高级索引”（advanced indexing）
+        # - 等价于：对每个 id，取 weight 的第 id 行
+        # - 本质就是 embedding lookup（查表）
+
+        # 举例：
+        # weight.shape = (V, D)
+        # token_ids = [[5, 20]]
+        # → 输出 = [weight[5], weight[20]]
+
+        # 输出形状：
+        # [B, S, D]
+        return self.weight[token_ids]
     
 class LayerNorm(nn.Module):
     def __init__(self, d_model: int, eps: float = 1e-5, device=None, dtype= None):

@@ -46,6 +46,9 @@ def main():
 
     # --- WandB 设置 ---
     parser.add_argument("--run_name", type=str, default=None, help="WandB 实验名称")
+    # --- WandB 设置 ---
+    parser.add_argument("--wandb_project", type=str, default="cs336-assignment1", help="WandB 项目名称")
+
 
     args = parser.parse_args()
 
@@ -74,7 +77,7 @@ def main():
     # 3. 初始化模型
     model = TransformerLM(
         vocab_size=args.vocab_size,
-        context_length=args.context_length,
+        max_seq_len=args.context_length,  
         d_model=args.d_model,
         num_layers=args.num_layers,
         num_heads=args.num_heads,
@@ -101,7 +104,7 @@ def main():
 
     # 6. 初始化 WandB 监控
     wandb.init(
-        project="cs336-assignment1",
+        project=args.wandb_project,
         name=args.run_name,
         config=args
     )
@@ -147,9 +150,9 @@ def main():
         if it % 1000 == 0 and it > 0:
             save_checkpoint(model, optimizer, it, ckpt_path)
         
-        # 训练结束保存最终模型
-        save_checkpoint(model, optimizer, args.max_iters, os.path.join(args.out_dir, "ckpt_final.pt"))
-        wandb.finish()
+    # 训练结束保存最终模型
+    save_checkpoint(model, optimizer, args.max_iters, os.path.join(args.out_dir, "ckpt_final.pt"))
+    wandb.finish()
 
 if __name__ == "__main__":
     main()
