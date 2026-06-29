@@ -11,7 +11,7 @@ MAX_NORM=1.0
 # --- 2. 待测试的 Batch Size 列表 ---
 # 从极小(1, 8)到典型(64, 128)再到极限值(256, 512)
 # 注意: 如果 512 导致显存溢出(OOM), 脚本会自动跳过并继续
-BS_LIST=(1 8 32 64 128 256 512)
+BS_LIST=(1 8 32 64) # 128 256 512 卡的显存不够，就线跑这些了
 # BS_LIST=(1)
 
 # --- 3. 路径配置 ---
@@ -36,7 +36,7 @@ for BS in "${BS_LIST[@]}"; do
   echo "📈 线性缩放学习率: $LR (Min: $MIN_LR)"
   echo "============================================================"
 
-  uv run python main_train.py \
+  python cs336_basics/train.py \
     --train_data_path data/TinyStoriesV2-GPT4-train.bin \
     --valid_data_path data/TinyStoriesV2-GPT4-valid.bin \
     --run_name "$RUN_NAME" \
