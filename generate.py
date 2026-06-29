@@ -97,10 +97,13 @@ def main():
     model = TransformerLM(device=DEVICE, **CFG).to(DEVICE)
     checkpoint = torch.load(CKPT_PATH, map_location=DEVICE)
     model.load_state_dict(checkpoint['model_state_dict'])
-
-
+    text = generate(model, tokenizer, args.prompt)
+    for sep in ["<endoftext>", "<|endoftext|>"]:
+        if sep in text:
+            text = text.split(sep)[0]
+            break
     print("=" * 60)
-    print(generate(model, tokenizer, args.prompt))
+    print(text)
     print("=" * 60)
 
 if __name__ == "__main__":
