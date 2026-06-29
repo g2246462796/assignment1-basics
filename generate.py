@@ -2,7 +2,7 @@ import argparse
 import json
 import torch
 from cs336_basics.Layers import TransformerLM
-from cs336_basics.criterion import load_checkpoint
+# from cs336_basics.criterion import load_checkpoint
 from cs336_basics.BPETokenizer import BPETokenizer  # 按你实际文件名改
 
 # ===== 配置区 =====
@@ -95,7 +95,9 @@ def main():
 
     tokenizer = load_tokenizer()
     model = TransformerLM(device=DEVICE, **CFG).to(DEVICE)
-    load_checkpoint(CKPT_PATH, model, optimizer=None)
+    checkpoint = torch.load(CKPT_PATH, map_location=DEVICE)
+    model.load_state_dict(checkpoint['model_state_dict'])
+
 
     print("=" * 60)
     print(generate(model, tokenizer, args.prompt))
